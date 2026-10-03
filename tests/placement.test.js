@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Group, Matrix4, Vector3, Quaternion } from '../vendor/three.module.js';
 import { placeObject } from '../src/placement.js';
 
-test('placed cube keeps its world pose when the camera and reticle move', () => {
+test('placed model keeps its world pose when the camera and reticle move', () => {
   const scene = new Group();
   const camera = new Group();
   const object = new Group();

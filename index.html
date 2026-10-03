@@ -4,24 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#171717">
-  <title>AR — размещение куба</title>
+  <title>AR — babuleh cat</title>
   <link rel="stylesheet" href="./style.css">
-  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
 </head>
 <body>
   <div id="viewport"></div>
   <main id="overlay">
     <section id="start-screen">
-      <h1>AR — размещение куба</h1>
-      <p>Направьте камеру на пол или стол. Когда появится кольцо, коснитесь экрана, чтобы разместить куб.</p>
-      <button id="start-ar" disabled>Проверяем WebXR…</button>
-      <p id="support" role="status">Проверяем поддержку дополненной реальности.</p>
+      <h1>AR — babuleh cat</h1>
+      <p>Найдите пол или стол. Когда появится кольцо, коснитесь экрана, чтобы поставить кота.</p>
+      <button id="start-ar" disabled>Загрузка…</button>
+      <p id="support" role="status">Загружаем модель и проверяем WebXR.</p>
     </section>
     <section id="ar-hud" hidden aria-label="Управление AR">
       <button id="end-ar">Выйти из AR</button>
       <div class="bottom-panel">
         <p id="ar-status" role="status">Медленно двигайте телефон, чтобы найти поверхность</p>
-        <button id="place" disabled>Разместить куб</button>
+        <button id="place" disabled>Поставить кота</button>
         <button id="reset" hidden>Разместить заново</button>
       </div>
     </section>

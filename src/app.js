@@ -1,224 +1,135 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { placeObject } from './placement.js';
 
 const $ = (id) => document.getElementById(id);
-const startButton = $('start-ar');
-const support = $('support');
-let renderer;
-try {
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-} catch (error) {
-  support.textContent = 'Не удалось запустить WebGL. Откройте страницу в браузере с аппаратным ускорением.';
-  startButton.textContent = 'WebGL недоступен';
-  throw error;
-}
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 20);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
-renderer.setClearColor(0x101916, 0);
 $('viewport').appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x888899, 3));
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 30);
-scene.add(new THREE.HemisphereLight(0xe4ffed, 0x3c4c43, 2.5));
-const light = new THREE.DirectionalLight(0xffffff, 3);
-light.position.set(2, 4, 3);
-scene.add(light);
-
-// The group origin is the contact point; the cube's bottom is at y = 0.
-function createCube() {
-  const root = new THREE.Group();
-  const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-    color: 0xa9e8c0, roughness: 0.32, metalness: 0.12,
-  }));
-  mesh.position.y = 0.1;
-  root.add(mesh);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0xd9ffe6, transparent: true, opacity: 0.6 }));
-  edges.position.y = 0.1;
-  root.add(edges);
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.15, 48), new THREE.MeshBasicMaterial({ color: 0x14271d, transparent: true, opacity: 0.18, depthWrite: false }));
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.001;
-  root.add(shadow);
-  return root;
-}
-const object = createCube();
+const object = new THREE.Group(); // Contact point; independent of the camera.
 object.visible = false;
 scene.add(object);
-
 const reticle = new THREE.Mesh(
-  new THREE.RingGeometry(0.075, 0.095, 64).rotateX(-Math.PI / 2),
+  new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
   new THREE.MeshBasicMaterial({ color: 0xb6f1cb, side: THREE.DoubleSide }),
 );
 reticle.matrixAutoUpdate = false;
 reticle.visible = false;
 scene.add(reticle);
+let session, source, placed = false, placeRequested = false;
+const status = (text) => { if ($('ar-status').textContent !== text) $('ar-status').textContent = text; };
 
-let session = null;
-let hitTestSource = null;
-let placed = false;
-let starting = false;
-let placementRequested = false;
-
-function status(message) {
-  if ($('ar-status').textContent !== message) $('ar-status').textContent = message;
+// Load before enabling AR; scale the longest side to 30 cm and put feet on y=0.
+try {
+  const [gltf, supported] = await Promise.all([
+    new GLTFLoader().loadAsync(new URL('../assets/babuleh_cat.glb', import.meta.url).href),
+    isSecureContext && navigator.xr ? navigator.xr.isSessionSupported('immersive-ar') : false,
+  ]);
+  const model = gltf.scene;
+  const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+  model.scale.multiplyScalar(0.3 / Math.max(size.x, size.y, size.z));
+  const box = new THREE.Box3().setFromObject(model);
+  const center = box.getCenter(new THREE.Vector3());
+  model.position.sub(new THREE.Vector3(center.x, box.min.y, center.z));
+  object.add(model);
+  $('start-ar').disabled = !supported;
+  $('start-ar').textContent = supported ? 'Запустить AR' : 'AR недоступен';
+  $('support').textContent = supported ? 'Модель загружена. Разрешите доступ к камере.' : 'Откройте в Chrome на Android с поддержкой ARCore через HTTPS.';
+} catch (error) {
+  $('support').textContent = 'Ошибка загрузки модели или WebXR. Обновите страницу.';
+  $('start-ar').textContent = 'Ошибка загрузки';
+  console.error(error);
 }
 
 function updateHit(frame) {
   reticle.visible = false;
-  if (!hitTestSource || placed || session?.visibilityState === 'hidden') return;
-  // Both rendering and hit poses use Three.js's SAME local-floor space.
-  const referenceSpace = renderer.xr.getReferenceSpace();
-  if (!referenceSpace || !frame.getViewerPose(referenceSpace)) return;
-  const results = frame.getHitTestResults(hitTestSource);
-  for (const hit of results) {
-    const pose = hit.getPose(referenceSpace);
-    if (!pose) continue;
-    // Local Y is the surface normal. Reject walls and downward-facing planes.
-    if (pose.transform.matrix[5] < 0.85) continue;
+  const space = renderer.xr.getReferenceSpace();
+  if (!source || placed || session.visibilityState === 'hidden' || !frame.getViewerPose(space)) return;
+  for (const hit of frame.getHitTestResults(source)) {
+    const pose = hit.getPose(space); // Same local-floor space as rendering.
+    if (!pose || pose.transform.matrix[5] < 0.85) continue;
     reticle.matrix.fromArray(pose.transform.matrix);
     reticle.visible = true;
     break;
   }
 }
-
 function place(frame) {
-  if (!session || placed) return;
-  // Refresh from the select event's XRFrame; don't place at a stale pose.
-  if (frame) updateHit(frame);
+  if (placed) return;
+  updateHit(frame);
   if (!reticle.visible) return;
-  placeObject(object, reticle.matrix);
+  placeObject(object, reticle.matrix); // Copy once; never follow the reticle.
   placed = true;
   reticle.visible = false;
   $('place').hidden = true;
   $('reset').hidden = false;
-  status('Куб размещён. Перемещайте камеру — объект остаётся на поверхности.');
+  status('Кот размещён. Можно двигать камеру.');
 }
-// DOM clicks run outside an active XRFrame. Process them in the next XR RAF.
-$('place').addEventListener('click', () => { placementRequested = true; });
-$('reset').addEventListener('click', () => {
-  placementRequested = false;
-  placed = false;
-  placementRequested = false;
-  object.visible = false;
-  reticle.visible = false;
+$('place').onclick = () => { placeRequested = true; }; // Handle in active XRFrame.
+$('reset').onclick = () => {
+  placed = placeRequested = object.visible = reticle.visible = false;
   $('place').hidden = false;
   $('place').disabled = true;
   $('reset').hidden = true;
-  status('Найдите поверхность для нового размещения');
-});
-// DOM overlay taps must not also generate an XR select that places the cube.
+};
 $('overlay').addEventListener('beforexrselect', (event) => {
-  if (event.target.closest('button, a')) event.preventDefault();
+  if (event.target.closest('button')) event.preventDefault();
 });
-
-function cleanSession(endedSession) {
-  if (session !== endedSession) return;
-  hitTestSource?.cancel();
-  hitTestSource = null;
-  session = null;
-  placed = false;
-  object.visible = false;
-  reticle.visible = false;
-  renderer.setClearColor(0x101916, 0);
-  document.body.classList.remove('ar');
-  $('ar-hud').hidden = true;
-  startButton.disabled = false;
-  startButton.textContent = 'Запустить AR';
-}
-
-startButton.addEventListener('click', async () => {
-  if (starting || session) return;
-  starting = true;
-  startButton.disabled = true;
-  let newSession;
+$('start-ar').onclick = async () => {
+  $('start-ar').disabled = true;
+  let current;
   try {
-    // Must run directly from the user gesture. local-floor is REQUIRED.
-    newSession = await navigator.xr.requestSession('immersive-ar', {
+    current = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test', 'local-floor'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: $('overlay') },
+      optionalFeatures: ['dom-overlay'], domOverlay: { root: $('overlay') },
     });
-    session = newSession;
-    newSession.addEventListener('end', () => cleanSession(newSession), { once: true });
-    newSession.addEventListener('select', (event) => place(event.frame));
-    newSession.addEventListener('visibilitychange', () => {
-      reticle.visible = false;
-      $('place').disabled = true;
-    });
+    session = current;
+    current.addEventListener('end', () => {
+      source?.cancel(); source = session = null;
+      placed = placeRequested = object.visible = reticle.visible = false;
+      document.body.classList.remove('ar');
+      $('ar-hud').hidden = true;
+      $('start-ar').disabled = false;
+    }, { once: true });
+    current.addEventListener('select', (event) => place(event.frame));
+    await renderer.xr.setSession(current);
+    if (session !== current) return;
+    const viewer = await current.requestReferenceSpace('viewer');
+    const hitSource = await current.requestHitTestSource({ space: viewer });
+    if (session !== current) { hitSource?.cancel(); return; }
+    if (!hitSource) throw new Error('Hit-test unavailable');
+    source = hitSource;
     document.body.classList.add('ar');
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0x000000, 0);
-    await renderer.xr.setSession(newSession);
-    if (session !== newSession) return;
-    const viewerSpace = await newSession.requestReferenceSpace('viewer');
-    const source = await newSession.requestHitTestSource({ space: viewerSpace });
-    if (!source) throw new Error('Hit-test source unavailable');
-    if (session !== newSession) { source.cancel(); return; }
-    hitTestSource = source;
-    document.body.classList.add('ar');
-    $('ar-hud').hidden = false;
-    $('place').hidden = false;
+    $('ar-hud').hidden = $('place').hidden = false;
     $('place').disabled = true;
     $('reset').hidden = true;
-    status('Медленно двигайте телефон, чтобы найти пол или стол');
-    support.textContent = 'AR готов. После выхода можно запустить новую сессию.';
   } catch (error) {
-    console.error('AR session failed:', error);
-    if (newSession && session === newSession) {
-      try { await newSession.end(); } catch { cleanSession(newSession); }
-    }
-    startButton.disabled = false;
-    startButton.textContent = 'Попробовать снова';
-    support.textContent = error.name === 'NotAllowedError'
-      ? 'Доступ к AR отклонён. Разрешите использование камеры и повторите запуск.'
-      : error.name === 'NotSupportedError'
-        ? 'Устройство не поддерживает immersive-ar с hit-test и local-floor. Используйте совместимый Chrome на Android.'
-        : 'Не удалось запустить AR. Проверьте разрешения камеры и поддержку WebXR, затем повторите попытку.';
-  } finally { starting = false; }
-});
-$('end-ar').addEventListener('click', async () => {
-  try { await session?.end(); } catch { status('Не удалось выйти. Используйте кнопку выхода браузера.'); }
-});
-
-async function checkSupport() {
-  if (!window.isSecureContext) {
-    startButton.textContent = 'Нужен HTTPS';
-    support.textContent = 'Для AR откройте HTTPS-страницу GitHub Pages.';
-    return;
+    if (current && session === current) await current.end().catch(() => {});
+    $('start-ar').disabled = false;
+    $('support').textContent = error.name === 'NotAllowedError' ? 'Доступ к AR отклонён. Разрешите камеру и повторите.' : 'Не удалось запустить AR. Нужны hit-test и local-floor на совместимом Android.';
+    console.error(error);
   }
-  try {
-    const supported = navigator.xr && await navigator.xr.isSessionSupported('immersive-ar');
-    startButton.disabled = !supported;
-    startButton.textContent = supported ? 'Запустить AR' : 'AR недоступен';
-    support.textContent = supported
-      ? 'Готово к запуску · разрешите доступ к камере при запросе браузера.'
-      : 'Откройте страницу в Chrome на Android с поддержкой ARCore. Этот браузер не поддерживает WebXR AR.';
-  } catch {
-    startButton.textContent = 'WebXR недоступен';
-    support.textContent = 'Не удалось проверить WebXR. Проверьте разрешения браузера.';
-  }
-}
-checkSupport();
-
+};
+$('end-ar').onclick = () => session?.end().catch(() => status('Используйте системный выход из AR.'));
 window.addEventListener('resize', () => {
   if (renderer.xr.isPresenting) return;
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(innerWidth, innerHeight);
 });
 renderer.setAnimationLoop((time, frame) => {
   if (frame && session) {
     updateHit(frame);
-    if (placementRequested) {
-      placementRequested = false;
-      place(frame);
-    }
+    if (placeRequested) { placeRequested = false; place(frame); }
     if (!placed) {
       $('place').disabled = !reticle.visible;
-      status(reticle.visible ? 'Поверхность найдена. Коснитесь экрана или нажмите «Разместить куб».' : 'Медленно двигайте телефон, чтобы найти пол или стол');
+      status(reticle.visible ? 'Коснитесь экрана, чтобы поставить кота.' : 'Направьте камеру на пол или стол и медленно двигайте телефон.');
     }
   }
   renderer.render(scene, camera);

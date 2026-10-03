@@ -110,7 +110,8 @@ test('AR session uses local-floor, places only on a valid hit, resets and cleans
   expect(xrState.poseSpace).toBe(xrState.renderSpace);
   await page.evaluate(() => window.xrTest.session.select());
   await expect(page.locator('#reset')).toBeVisible();
-  await expect(page.locator('#ar-status')).toContainText('Куб размещён');
+  await expect(page.locator('#ar-status')).toContainText('Кот размещён');
+  await page.screenshot({ path: 'test-results/ar-model.png' });
   await page.locator('#reset').click();
   await expect(page.locator('#place')).toBeVisible();
   await page.evaluate(() => { window.xrTest.tracked = false; });
