@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('unsupported browser still renders a usable desktop and mobile preview', async ({ page }) => {
+test('minimal start screen fits a phone and explains missing WebXR support', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => Object.defineProperty(navigator, 'xr', { value: undefined, configurable: true }));
@@ -9,17 +9,11 @@ test('unsupported browser still renders a usable desktop and mobile preview', as
   await expect(page.locator('#start-ar')).toHaveText('AR недоступен');
   await expect(page.locator('canvas')).toBeVisible();
   await page.screenshot({ path: 'test-results/desktop.png', fullPage: true });
-  await page.locator('#preview-toggle').click();
-  await expect(page.locator('#preview-note')).toBeVisible();
-  await page.mouse.move(700, 400);
-  await page.mouse.down();
-  await page.mouse.move(820, 460, { steps: 8 });
-  await page.mouse.up();
-  await page.locator('#preview-toggle').click();
-  await expect(page.locator('#preview-note')).toBeHidden();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  await expect(page.locator('#support')).toContainText('Chrome на Android');
   expect(errors).toEqual([]);
 });
 
@@ -38,6 +32,7 @@ test('permission denial leaves the start button available for retry', async ({ p
 // A deterministic XR API mock exercises the real Three.js WebXRManager.
 // It verifies API wiring and UI behavior, not real-device tracking accuracy.
 test('AR session uses local-floor, places only on a valid hit, resets and cleans up', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
@@ -67,8 +62,10 @@ test('AR session uses local-floor, places only on a valid hit, resets and cleans
         return { cancel: () => window.xrTest.cancelled++ };
       }
       frame() {
-        return {
+        const frame = {
+          active: false,
           getViewerPose: (space) => {
+            if (!frame.active) throw new DOMException('Inactive XRFrame', 'InvalidStateError');
             window.xrTest.renderSpace = space.type;
             return window.xrTest.tracked ? { views: [{ transform: { matrix: identity }, projectionMatrix: identity }] } : null;
           },
@@ -78,11 +75,12 @@ test('AR session uses local-floor, places only on a valid hit, resets and cleans
             return { transform: { matrix } };
           } }] : [],
         };
+        return frame;
       }
-      requestAnimationFrame(callback) { return window.requestAnimationFrame((time) => { if (!this.ended) callback(time, this.frame()); }); }
+      requestAnimationFrame(callback) { return window.requestAnimationFrame((time) => { if (!this.ended) { const frame = this.frame(); frame.active = true; callback(time, frame); frame.active = false; } }); }
       cancelAnimationFrame(id) { window.cancelAnimationFrame(id); }
       async end() { this.ended = true; this.dispatchEvent(new Event('end')); }
-      select() { const event = new Event('select'); event.frame = this.frame(); this.dispatchEvent(event); }
+      select() { const event = new Event('select'); event.frame = this.frame(); event.frame.active = true; this.dispatchEvent(event); event.frame.active = false; }
     }
     Object.defineProperty(navigator, 'xr', { configurable: true, value: {
       isSessionSupported: async () => true,

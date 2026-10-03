@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { OrbitControls } from '../vendor/OrbitControls.js';
 import { placeObject } from './placement.js';
 
 const $ = (id) => document.getElementById(id);
@@ -11,7 +10,6 @@ try {
 } catch (error) {
   support.textContent = 'Не удалось запустить WebGL. Откройте страницу в браузере с аппаратным ускорением.';
   startButton.textContent = 'WebGL недоступен';
-  $('preview-toggle').disabled = true;
   throw error;
 }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -50,16 +48,6 @@ const object = createCube();
 object.visible = false;
 scene.add(object);
 
-const preview = new THREE.Group();
-const previewCube = createCube();
-previewCube.rotation.y = -0.3;
-preview.add(previewCube);
-const grid = new THREE.GridHelper(2.5, 25, 0x45644f, 0x253b2d);
-grid.material.transparent = true;
-grid.material.opacity = 0.24;
-preview.add(grid);
-scene.add(preview);
-
 const reticle = new THREE.Mesh(
   new THREE.RingGeometry(0.075, 0.095, 64).rotateX(-Math.PI / 2),
   new THREE.MeshBasicMaterial({ color: 0xb6f1cb, side: THREE.DoubleSide }),
@@ -68,57 +56,15 @@ reticle.matrixAutoUpdate = false;
 reticle.visible = false;
 scene.add(reticle);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.enablePan = false;
-controls.minDistance = 0.35;
-controls.maxDistance = 2;
-controls.maxPolarAngle = Math.PI / 2 - 0.05;
-controls.enabled = false;
-let previewMode = false;
 let session = null;
 let hitTestSource = null;
 let placed = false;
 let starting = false;
+let placementRequested = false;
 
-function layoutPreview() {
-  if (renderer.xr.isPresenting) return;
-  const mobile = window.innerWidth <= 600;
-  const viewport = $('viewport');
-  if (mobile && !previewMode) {
-    viewport.style.top = `${document.querySelector('.steps').getBoundingClientRect().bottom + window.scrollY + 24}px`;
-  } else viewport.style.top = '';
-  const width = viewport.clientWidth;
-  const height = viewport.clientHeight;
-  renderer.setSize(width, height);
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  const target = new THREE.Vector3(0, 0.09, 0);
-  camera.position.set(0.48, 0.37, 0.62);
-  if (mobile && !previewMode) camera.position.multiplyScalar(0.65);
-  camera.lookAt(target);
-  controls.target.copy(target);
-  camera.clearViewOffset();
-  if (!previewMode && !mobile) {
-    // Shift the object into the open area beside/below the instructions.
-    camera.setViewOffset(window.innerWidth, window.innerHeight,
-      -window.innerWidth * 0.25,
-      -window.innerHeight * 0.035,
-      window.innerWidth, window.innerHeight);
-  }
-  controls.update();
+function status(message) {
+  if ($('ar-status').textContent !== message) $('ar-status').textContent = message;
 }
-layoutPreview();
-$('preview-toggle').addEventListener('click', () => {
-  previewMode = !previewMode;
-  document.body.classList.toggle('preview', previewMode);
-  $('preview-note').hidden = !previewMode;
-  $('preview-toggle').textContent = previewMode ? '← Вернуться' : 'Осмотреть куб ↻';
-  controls.enabled = previewMode;
-  layoutPreview();
-});
-
-function status(message) { $('ar-status').textContent = message; }
 
 function updateHit(frame) {
   reticle.visible = false;
@@ -150,9 +96,12 @@ function place(frame) {
   $('reset').hidden = false;
   status('Куб размещён. Перемещайте камеру — объект остаётся на поверхности.');
 }
-$('place').addEventListener('click', () => place(renderer.xr.getFrame()));
+// DOM clicks run outside an active XRFrame. Process them in the next XR RAF.
+$('place').addEventListener('click', () => { placementRequested = true; });
 $('reset').addEventListener('click', () => {
+  placementRequested = false;
   placed = false;
+  placementRequested = false;
   object.visible = false;
   reticle.visible = false;
   $('place').hidden = false;
@@ -173,16 +122,11 @@ function cleanSession(endedSession) {
   placed = false;
   object.visible = false;
   reticle.visible = false;
-  preview.visible = true;
-  scene.background = null;
   renderer.setClearColor(0x101916, 0);
   document.body.classList.remove('ar');
   $('ar-hud').hidden = true;
-  controls.enabled = previewMode;
   startButton.disabled = false;
-  startButton.textContent = 'Запустить AR ↗';
-  // WebXRManager restores the camera/renderer as the session end completes.
-  requestAnimationFrame(layoutPreview);
+  startButton.textContent = 'Запустить AR';
 }
 
 startButton.addEventListener('click', async () => {
@@ -204,13 +148,8 @@ startButton.addEventListener('click', async () => {
       reticle.visible = false;
       $('place').disabled = true;
     });
-    controls.enabled = false;
-    // The XR canvas uses the full screen, including on mobile.
-    $('viewport').style.top = '';
     document.body.classList.add('ar');
     renderer.setSize(window.innerWidth, window.innerHeight);
-    camera.clearViewOffset();
-    preview.visible = false;
     renderer.setClearColor(0x000000, 0);
     await renderer.xr.setSession(newSession);
     if (session !== newSession) return;
@@ -232,7 +171,7 @@ startButton.addEventListener('click', async () => {
       try { await newSession.end(); } catch { cleanSession(newSession); }
     }
     startButton.disabled = false;
-    startButton.textContent = 'Попробовать AR снова ↗';
+    startButton.textContent = 'Попробовать снова';
     support.textContent = error.name === 'NotAllowedError'
       ? 'Доступ к AR отклонён. Разрешите использование камеры и повторите запуск.'
       : error.name === 'NotSupportedError'
@@ -247,19 +186,19 @@ $('end-ar').addEventListener('click', async () => {
 async function checkSupport() {
   if (!window.isSecureContext) {
     startButton.textContent = 'Нужен HTTPS';
-    support.textContent = 'Для AR откройте HTTPS-страницу GitHub Pages. Предпросмотр доступен ниже.';
+    support.textContent = 'Для AR откройте HTTPS-страницу GitHub Pages.';
     return;
   }
   try {
     const supported = navigator.xr && await navigator.xr.isSessionSupported('immersive-ar');
     startButton.disabled = !supported;
-    startButton.textContent = supported ? 'Запустить AR ↗' : 'AR недоступен';
+    startButton.textContent = supported ? 'Запустить AR' : 'AR недоступен';
     support.textContent = supported
       ? 'Готово к запуску · разрешите доступ к камере при запросе браузера.'
-      : 'Браузер не поддерживает WebXR AR. Откройте в Chrome на совместимом Android или осмотрите куб в 3D.';
+      : 'Откройте страницу в Chrome на Android с поддержкой ARCore. Этот браузер не поддерживает WebXR AR.';
   } catch {
     startButton.textContent = 'WebXR недоступен';
-    support.textContent = 'Не удалось проверить WebXR. Проверьте разрешения браузера. 3D-предпросмотр доступен.';
+    support.textContent = 'Не удалось проверить WebXR. Проверьте разрешения браузера.';
   }
 }
 checkSupport();
@@ -269,16 +208,18 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  if (!previewMode) layoutPreview();
 });
-document.fonts.ready.then(() => { if (!session) layoutPreview(); });
 renderer.setAnimationLoop((time, frame) => {
   if (frame && session) {
     updateHit(frame);
+    if (placementRequested) {
+      placementRequested = false;
+      place(frame);
+    }
     if (!placed) {
       $('place').disabled = !reticle.visible;
       status(reticle.visible ? 'Поверхность найдена. Коснитесь экрана или нажмите «Разместить куб».' : 'Медленно двигайте телефон, чтобы найти пол или стол');
     }
-  } else if (previewMode) controls.update();
+  }
   renderer.render(scene, camera);
 });

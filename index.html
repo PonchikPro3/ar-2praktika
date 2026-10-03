@@ -3,34 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101916">
-  <meta name="description" content="WebAR на Three.js: найдите поверхность и разместите куб в реальном пространстве.">
-  <title>Place — объект в вашем пространстве</title>
-  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#171717">
+  <title>AR — размещение куба</title>
   <link rel="stylesheet" href="./style.css">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head>
 <body>
-  <div id="viewport" aria-label="Трёхмерный предпросмотр куба"></div>
+  <div id="viewport"></div>
   <main id="overlay">
-    <header class="topbar"><a class="brand" href="./" aria-label="Place — главная"><span class="brand-icon">◇</span> place<span class="brand-dot">.</span></a><span class="project-tag">WEB AR <span> / </span> ПРАКТИКА 04</span></header>
-    <section class="intro">
-      <p class="eyebrow"><span class="live-dot"></span> ИЗ ЭКРАНА В РЕАЛЬНОСТЬ</p>
-      <h1>Новый объект.<br>Ваше <span>пространство.</span></h1>
-      <p class="description">Найдите поверхность, коснитесь экрана —<br class="desktop-break"> и оставьте куб в своём мире.</p>
-      <div class="actions"><button id="start-ar" class="primary" disabled>Проверяем WebXR… <span>↗</span></button><button id="preview-toggle" class="secondary">Осмотреть куб <span>↻</span></button></div>
-      <p id="support" class="support" role="status">Проверяем поддержку дополненной реальности.</p>
-      <ol class="steps"><li><span>01</span><div>Найдите плоскость<small>Плавно направьте камеру на пол или стол</small></div></li><li><span>02</span><div>Наведите маркер<small>Кольцо покажет место размещения</small></div></li><li><span>03</span><div>Коснитесь экрана<small>Обойдите куб — он останется на месте</small></div></li></ol>
+    <section id="start-screen">
+      <h1>AR — размещение куба</h1>
+      <p>Направьте камеру на пол или стол. Когда появится кольцо, коснитесь экрана, чтобы разместить куб.</p>
+      <button id="start-ar" disabled>Проверяем WebXR…</button>
+      <p id="support" role="status">Проверяем поддержку дополненной реальности.</p>
     </section>
-    <aside class="object-label"><span class="label-line"></span><div>КУБ / 001<small>20 × 20 × 20 см</small></div><span class="material-tag">MINT</span></aside>
-    <div id="preview-note" class="preview-note" hidden>3D-предпросмотр · вращайте пальцем или мышью<br><small>Это демонстрация модели, без камеры и hit-test</small></div>
-    <footer><span>THREE.JS <b>+</b> WEBXR</span><a href="https://github.com/PonchikPro3/ar-2praktika" target="_blank" rel="noopener noreferrer">Исходный код ↗</a></footer>
     <section id="ar-hud" hidden aria-label="Управление AR">
-      <div class="ar-top"><span class="ar-badge"><span class="live-dot"></span> PLACE / AR</span><button id="end-ar" class="hud-button">Выйти ×</button></div>
-      <div class="ar-bottom"><p id="ar-status" role="status">Медленно двигайте телефон, чтобы найти поверхность</p><div class="hud-actions"><button id="place" class="primary" disabled>Разместить куб</button><button id="reset" class="hud-button" hidden>Разместить заново ↻</button></div></div>
+      <button id="end-ar">Выйти из AR</button>
+      <div class="bottom-panel">
+        <p id="ar-status" role="status">Медленно двигайте телефон, чтобы найти поверхность</p>
+        <button id="place" disabled>Разместить куб</button>
+        <button id="reset" hidden>Разместить заново</button>
+      </div>
     </section>
   </main>
   <script type="module" src="./src/app.js"></script>
-  <script>window.addEventListener('error', (event) => { if (event.target?.tagName === 'SCRIPT') document.getElementById('support').textContent = 'Не удалось загрузить приложение. Обновите страницу.'; }, true);</script>
 </body>
 </html>
